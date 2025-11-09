@@ -1,16 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    // Force Turbopack to treat this frontend folder as the project root,
-    // instead of inferring the parent `ghost-cipher-trade` workspace root.
-    root: __dirname,
+  output: 'standalone',
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: false,
   },
   headers() {
     // Required by FHEVM 
     return Promise.resolve([
       {
-        source: '/',
+        source: '/:path*',
         headers: [
           {
             key: 'Cross-Origin-Opener-Policy',

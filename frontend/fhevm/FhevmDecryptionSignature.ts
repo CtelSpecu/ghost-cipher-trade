@@ -297,11 +297,17 @@ export class FhevmDecryptionSignature {
         startTimestamp,
         durationDays
       );
+      
+      console.log("[FhevmDecryptionSignature] Requesting signature from wallet...");
+      
       const signature = await signer.signTypedData(
         eip712.domain,
         { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         eip712.message
       );
+      
+      console.log("[FhevmDecryptionSignature] Signature received successfully");
+      
       return new FhevmDecryptionSignature({
         publicKey,
         privateKey,
@@ -312,7 +318,8 @@ export class FhevmDecryptionSignature {
         eip712: eip712 as EIP712Type,
         userAddress,
       });
-    } catch {
+    } catch (error) {
+      console.error("[FhevmDecryptionSignature] Signature request failed:", error);
       return null;
     }
   }

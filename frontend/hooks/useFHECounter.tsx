@@ -114,6 +114,7 @@ export const useFHECounter = (parameters: {
     undefined
   );
   const clearCountRef = useRef<ClearValueType>(undefined);
+  const [hasSignedTx, setHasSignedTx] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isDecrypting, setIsDecrypting] = useState<boolean>(false);
   const [isIncOrDec, setIsIncOrDec] = useState<boolean>(false);
@@ -221,26 +222,28 @@ export const useFHECounter = (parameters: {
       fheCounter.address &&
       instance &&
       ethersSigner &&
+      hasSignedTx &&
       !isRefreshing &&
       !isDecrypting &&
-      countHandle &&
-      countHandle !== clearCount?.handle // not yet decrypted
+      countHandle
+      // Removed: countHandle !== clearCount?.handle
+      // Now allows re-decryption even if already decrypted
     );
   }, [
     fheCounter.address,
     instance,
     ethersSigner,
+    hasSignedTx,
     isRefreshing,
     isDecrypting,
     countHandle,
-    clearCount,
   ]);
 
   /**
    * Asynchronous FHEVM decryption process.
    *
    * - Prevents double execution by using `isDecryptingRef` as a guard.
-   * - Checks if the value has already been decrypted using `clearCountRef` to avoid redundant operations.
+   * - Forces re-authentication and decryption on every click.
    * - Verifies if the decryption result is stale by comparing the current `chainId`, `contract address`, and `signer`.
    */
   const decryptCountHandle = useCallback(() => {
@@ -252,10 +255,16 @@ export const useFHECounter = (parameters: {
       return;
     }
 
-    // Already computed
-    if (countHandle === clearCountRef.current?.handle) {
+    // Require that the user has already executed a signed tx
+    if (!hasSignedTx) {
+      setMessage(
+        "Please execute at least one trade transaction before revealing net exposure."
+      );
       return;
     }
+
+    // Removed: Already computed check
+    // Now forces re-authentication and decryption every time
 
     if (!countHandle) {
       setClearCount(undefined);
@@ -285,18 +294,33 @@ export const useFHECounter = (parameters: {
         !sameSigner.current(thisEthersSigner);
 
       try {
+        // Clear any cached signatures first to force re-authentication
+        setMessage("Requesting wallet signature for decryption...");
+        
+        // CRITICAL: Generate a NEW keypair every time to force wallet re-authentication
+        // Each new keypair creates a different EIP712 message, preventing wallet caching
+        const { publicKey, privateKey } = instance.generateKeypair();
+        
+        setMessage("⚠️ Please approve the signature request in your wallet...");
+        
+        // Create new signature - this MUST trigger wallet popup
+        // The new publicKey ensures the EIP712 message is different each time
         const sig: FhevmDecryptionSignature | null =
-          await FhevmDecryptionSignature.loadOrSign(
+          await FhevmDecryptionSignature.new(
             instance,
             [fheCounter.address as `0x${string}`],
-            ethersSigner,
-            fhevmDecryptionSignatureStorage
+            publicKey,
+            privateKey,
+            ethersSigner
           );
 
         if (!sig) {
-          setMessage("Unable to build FHEVM decryption signature");
+          setMessage("❌ Signature rejected or failed. Decryption cancelled.");
+          console.error("[useFHECounter] Failed to obtain signature - user may have rejected");
           return;
         }
+        
+        console.log("[useFHECounter] Signature obtained, proceeding with decryption...");
 
         if (isStale()) {
           setMessage("Ignore FHEVM decryption");
@@ -349,6 +373,7 @@ export const useFHECounter = (parameters: {
     chainId,
     sameChain,
     sameSigner,
+    hasSignedTx,
   ]);
 
   //////////////////////////////////////////////////////////////////////////////
@@ -446,6 +471,9 @@ export const useFHECounter = (parameters: {
             setMessage(`Ignore ${opMsg}`);
             return;
           }
+
+          // Mark that the user has successfully signed and executed a tx
+          setHasSignedTx(true);
 
           refreshCountHandle();
         } catch {
